@@ -1,0 +1,114 @@
+from pathlib import Path
+import textwrap, zipfile
+
+base = Path("/mnt/data/telegram_monitor")
+base.mkdir(exist_ok=True)
+
+main_py = r'''import asyncio
+import os
+from datetime import datetime
+
+from telethon import TelegramClient, events, types
+
+# Set these as environment variables in Codespaces:
+# TELEGRAM_API_ID
+# TELEGRAM_API_HASH
+# TELEGRAM_TARGET
+API_ID = int(os.environ["TELEGRAM_API_ID"])
+API_HASH = os.environ["TELEGRAM_API_HASH"]
+TARGET = os.environ["TELEGRAM_TARGET"]
+
+SESSION = "telegram_monitor"
+
+async def main():
+    client = TelegramClient(SESSION, API_ID, API_HASH)
+
+    await client.start()
+    print("Logged in successfully.")
+
+    try:
+        target = await client.get_entity(TARGET)
+    except Exception as exc:
+        print(f"Could not find target: {exc}")
+        await client.disconnect()
+        return
+
+    target_id = target.id
+    name = getattr(target, "username", None) or getattr(target, "first_name", None) or str(target_id)
+    print(f"Monitoring: {name} (ID {target_id})")
+
+    @client.on(events.Raw)
+    async def status_handler(update):
+        if not isinstance(update, types.UpdateUserStatus):
+            return
+        if update.user_id != target_id:
+            return
+
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        status = update.status
+
+        if isinstance(status, types.UserStatusOnline):
+            print(f"[{now}] ONLINE")
+        elif isinstance(status, types.UserStatusOffline):
+            print(f"[{now}] OFFLINE")
+        elif isinstance(status, types.UserStatusRecently):
+            print(f"[{now}] RECENTLY")
+        else:
+            print(f"[{now}] STATUS CHANGED")
+
+    print("Waiting for status updates. Press Ctrl+C to stop.")
+    await client.run_until_disconnected()
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nStopped.")
+'''
+
+requirements = "telethon>=1.41,<2\n"
+
+readme = r'''# Telegram Status Monitor
+
+A small Python/Telethon project for monitoring status updates for a Telegram user
+whose status is visible to the logged-in account.
+
+## Setup
+
+1. Get `api_id` and `api_hash` from Telegram's official API tools:
+   https://my.telegram.org/apps
+
+2. In GitHub Codespaces, set these environment variables:
+   - `TELEGRAM_API_ID` = your numeric API ID
+   - `TELEGRAM_API_HASH` = your API hash
+   - `TELEGRAM_TARGET` = username (without @), phone number, or another identifier
+     that your logged-in account can resolve.
+
+3. Install dependencies:
+   `pip install -r requirements.txt`
+
+4. Run:
+   `python main.py`
+
+On first login, Telegram will ask for your phone number and login code.
+Keep the generated `.session` file private.
+
+## Important
+
+This uses a normal Telegram user account through Telegram's API. It does not
+bypass blocks, privacy settings, or hidden status. If a user's status is not
+available to the logged-in account, the program cannot reveal it.
+
+Do not commit your API hash, login code, password, or `.session` file to GitHub.
+'''
+
+(base/"main.py").write_text(main_py, encoding="utf-8")
+(base/"requirements.txt").write_text(requirements, encoding="utf-8")
+(base/"README.md").write_text(readme, encoding="utf-8")
+
+zip_path = Path("/mnt/data/telegram_monitor_project.zip")
+with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+    for p in [base/"main.py", base/"requirements.txt", base/"README.md"]:
+        z.write(p, arcname=p.name)
+
+str(zip_path), [str(p) for p in base.iterdir()]
